@@ -20,6 +20,8 @@ public class ManualPromise<Wrapped> {
     }
     
     public func complete(_ value: Wrapped) throws {
+        defer { semaphore.signal() }
+        
         if result != nil || error != nil {
             error = Error.alreadyCompleted
             return
@@ -54,8 +56,6 @@ public class ManualPromise<Wrapped> {
 }
 
 public class Promise<Wrapped> : ManualPromise<Wrapped> {
-    
-    
     func complete(_ closure: (() throws -> Wrapped)) {
         defer { semaphore.signal() }
         
