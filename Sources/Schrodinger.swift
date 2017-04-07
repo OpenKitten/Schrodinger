@@ -9,6 +9,10 @@ public class ManualPromise<Wrapped> {
     let semaphore = DispatchSemaphore(value: 0)
     let timeout: DispatchTime
     
+    public var isCompleted: Bool {
+        return result != nil || error != nil
+    }
+        
     public enum Error : Swift.Error {
         case strangeInconsistency
         case alreadyCompleted
