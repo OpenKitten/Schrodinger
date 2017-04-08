@@ -47,8 +47,8 @@ public class ManualPromise<Wrapped> {
     }
     
     /// Creates a new promise providing a timeout
-    public init(timeout: DispatchTimeInterval = .seconds(10)) {
-        self.timeout = DispatchTime.now() + timeout
+    public init(timeoutAfter interval: DispatchTimeInterval = .seconds(10)) {
+        self.timeout = DispatchTime.now() + interval
     }
     
     /// Completes the promise with the wrapped value
@@ -129,8 +129,8 @@ public class Promise<Wrapped> : ManualPromise<Wrapped> {
     /// Creates a new promise that can timeout
     ///
     /// Automatically executes the closure asynchronously
-    public init(timeout: DispatchTimeInterval = .seconds(10), closure: @escaping (() throws -> Wrapped)) {
-        super.init(timeout: timeout)
+    public init(timeoutAfter interval: DispatchTimeInterval = .seconds(10), closure: @escaping (() throws -> Wrapped)) {
+        super.init(timeoutAfter: interval)
         
         backgroundExecutionQueue.async {
             self.complete(closure)
@@ -139,6 +139,6 @@ public class Promise<Wrapped> : ManualPromise<Wrapped> {
 }
 
 /// A global async function that times creates a new promise
-public func async<T>(timingOut after: DispatchTimeInterval = .seconds(10), _ closure: @escaping (() throws -> T)) -> Promise<T> {
-    return Promise<T>(timeout: after, closure: closure)
+public func async<T>(timeoutAfter interval: DispatchTimeInterval = .seconds(10), _ closure: @escaping (() throws -> T)) -> Promise<T> {
+    return Promise<T>(timeoutAfter: interval, closure: closure)
 }
