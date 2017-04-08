@@ -18,8 +18,11 @@ let promisedResult = async {
 try promise.await()
 ```
 
-Set custom timeouts.
+And set custom timeouts.
 
 ```swift
-async(
+// times out after a minute
+let promise = async(timingOut: .seconds(60)) {
+	...
+}
 ```
