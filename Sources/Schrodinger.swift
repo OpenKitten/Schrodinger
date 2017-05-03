@@ -64,7 +64,7 @@ public class ManualPromise<Wrapped> {
     }
     
     /// Fails the promise with an error
-    public func fail(_ error: Error) throws {
+    public func fail(_ error: Swift.Error) throws {
         defer { semaphore.signal() }
         
         if result != nil || self.error != nil {
