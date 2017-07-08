@@ -3,6 +3,7 @@ import Dispatch
 public class Future<T> {
     var result: Result?
     var handlers = [ResultHandler]()
+    var semaphores = [DispatchSemaphore]()
     let start = DispatchTime.now()
     
     public typealias ResultHandler = ((Result) -> ())
@@ -65,6 +66,24 @@ public class Future<T> {
         }
     }
     
+    public func await(until interval: DispatchTimeInterval) throws -> T {
+        let semaphore = DispatchSemaphore(value: 0)
+        
+        futureManipulationQueue.sync {
+            self.semaphores.append(semaphore)
+        }
+        
+        guard semaphore.wait(timeout: DispatchTime.now() + interval) == .success else {
+            throw FutureError.timeout(after: interval)
+        }
+        
+        guard let result = result else {
+            throw FutureError.inconsistency
+        }
+        
+        return try result.assertSuccess()
+    }
+    
     /// Gets called only when an error occurred due to throwing
     ///
     /// ```swift
@@ -89,7 +108,11 @@ public class Future<T> {
                 throw FutureError.alreadyCompleted
             }
         }
-            
+        
+        self._complete(closure)
+    }
+    
+    internal func _complete(_ closure: @escaping () throws -> T) {
         backgroundExecutionQueue.async {
             do {
                 let result = Result.success(try closure())
@@ -111,14 +134,18 @@ public class Future<T> {
         }
     }
     
+    public var isCompleted: Bool {
+        return futureManipulationQueue.sync { self.result != nil }
+    }
+    
     public func map<B>(_ closure: @escaping ((T) throws -> (B))) throws -> Future<B> {
         return try Future<B>(transform: closure, from: self)
     }
     
     public init() {}
     
-    public init(_ handler: @escaping ResultHandler) {
-        self.handlers.append(handler)
+    public init(_ closure: @escaping () throws -> T) {
+        self._complete(closure)
     }
     
     internal init<Base>(transform: @escaping ((Base) throws -> (T)), from: Future<Base>) throws {
@@ -151,4 +178,5 @@ public class Future<T> {
 public enum FutureError : Error {
     case alreadyCompleted
     case timeout(after: DispatchTimeInterval)
+    case inconsistency
 }
