@@ -3,13 +3,12 @@ import Dispatch
 public class Future<T> {
     var result: Result?
     var handlers = [ResultHandler]()
-    var semaphores = [DispatchSemaphore]()
     let start = DispatchTime.now()
     
     public typealias ResultHandler = ((Result) -> ())
     
     /// A result, be it an error or successful result
-    public enum Result {
+    public indirect enum Result {
         case success(T)
         case error(Swift.Error)
         
@@ -68,20 +67,22 @@ public class Future<T> {
     
     public func await(until interval: DispatchTimeInterval) throws -> T {
         let semaphore = DispatchSemaphore(value: 0)
+        var awaitedResult: Result?
         
-        futureManipulationQueue.sync {
-            self.semaphores.append(semaphore)
+        self.then { result in
+            awaitedResult = result
+            semaphore.signal()
         }
         
         guard semaphore.wait(timeout: DispatchTime.now() + interval) == .success else {
             throw FutureError.timeout(after: interval)
         }
         
-        guard let result = result else {
-            throw FutureError.inconsistency
+        if let awaitedResult = awaitedResult {
+            return try awaitedResult.assertSuccess()
         }
         
-        return try result.assertSuccess()
+        throw FutureError.inconsistency
     }
     
     /// Gets called only when an error occurred due to throwing
@@ -142,10 +143,48 @@ public class Future<T> {
         return try Future<B>(transform: closure, from: self)
     }
     
+    public func replace<B>(_ closure: @escaping ((T) throws -> (Future<B>))) throws -> Future<B> {
+        return try Future<B>(transform: closure, from: self)
+    }
+    
     public init() {}
     
     public init(_ closure: @escaping () throws -> T) {
         self._complete(closure)
+    }
+    
+    internal init<Base>(transform: @escaping ((Base) throws -> (Future<T>)), from: Future<Base>) throws {
+        try futureManipulationQueue.sync {
+            func processResult(_ result: Future<Base>.Result) throws {
+                switch result {
+                case .success(let data):
+                    let promise = try transform(data)
+                    if let result = promise.result {
+                        self._complete {
+                            try result.assertSuccess()
+                        }
+                    } else {
+                        promise.then { result in
+                            self._complete { try result.assertSuccess() }
+                        }
+                    }
+                case .error(let error):
+                    self.result = .error(error)
+                }
+            }
+            
+            if let result = from.result {
+                try processResult(result)
+            } else {
+                from.then { result in
+                    do {
+                        try processResult(result)
+                    } catch {
+                        self.result = .error(error)
+                    }
+                }
+            }
+        }
     }
     
     internal init<Base>(transform: @escaping ((Base) throws -> (T)), from: Future<Base>) throws {
