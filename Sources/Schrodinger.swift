@@ -1,7 +1,7 @@
 import Dispatch
 
-fileprivate let backgroundExecutionQueue = DispatchQueue(label: "org.openkitten.schrodinger.backgroundexecution", attributes: .concurrent)
-fileprivate let futureManipulationQueue = DispatchQueue(label: "org.openkitten.schrodinger.futurequeue")
+let backgroundExecutionQueue = DispatchQueue(label: "org.openkitten.schrodinger.backgroundexecution", attributes: .concurrent)
+let futureManipulationQueue = DispatchQueue(label: "org.openkitten.schrodinger.futurequeue", qos: .userInteractive)
 
 /// A promise that can be fulfilled manually
 ///
