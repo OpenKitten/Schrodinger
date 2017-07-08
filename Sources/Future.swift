@@ -7,6 +7,7 @@ public class Future<T> {
     
     public typealias ResultHandler = ((Result) -> ())
     
+    /// A result, be it an error or successful result
     public enum Result {
         case success(T)
         case error(Swift.Error)
@@ -21,6 +22,24 @@ public class Future<T> {
         }
     }
     
+    /// Awaits for a `Result`
+    ///
+    /// The result can be an error or successful data. May not throw.
+    ///
+    /// Usage:
+    ///
+    /// ```swift
+    /// let future = Future<User>
+    ///
+    /// future.then { result in
+    ///     switch {
+    ///     case .success(let user):
+    ///         user.doStuff()
+    ///     case .error(let error):
+    ///         print(error)
+    ///     }
+    /// }
+    /// ```
     public func then(_ handler: @escaping ResultHandler) {
         futureManipulationQueue.sync {
             if let result = result {
@@ -31,6 +50,39 @@ public class Future<T> {
         }
     }
     
+    /// Gets called only when a result has been successfully captured
+    ///
+    /// ```swift
+    /// future.onSuccess { data in
+    ///     process(data)
+    /// }
+    /// ```
+    public func onSuccess(_ handler: @escaping ((T) -> ())) {
+        self.then { result in
+            if case .success(let value) = result {
+                handler(value)
+            }
+        }
+    }
+    
+    /// Gets called only when an error occurred due to throwing
+    ///
+    /// ```swift
+    /// future.onError { error in
+    ///     print(error)
+    /// }
+    /// ```
+    public func onError(_ handler: @escaping ((Swift.Error) -> ())) {
+        self.then { result in
+            if case .error(let error) = result {
+                handler(error)
+            }
+        }
+    }
+    
+    /// Completes the future, calling all awaiting handlers
+    ///
+    /// If the completion throws an error, this will be passed to the handlers
     public func complete(_ closure: @escaping () throws -> T) throws {
         try futureManipulationQueue.sync {
             guard result == nil else {
