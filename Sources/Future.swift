@@ -1,9 +1,11 @@
+import Foundation
 import Dispatch
 
 public class Future<T> {
     var result: Result?
     var handlers = [ResultHandler]()
     let start = DispatchTime.now()
+    let lock = NSRecursiveLock()
     
     public typealias ResultHandler = ((Result) -> ())
     
@@ -41,12 +43,13 @@ public class Future<T> {
     /// }
     /// ```
     public func then(_ handler: @escaping ResultHandler) {
-        futureManipulationQueue.sync {
-            if let result = result {
-                handler(result)
-            } else {
-                handlers.append(handler)
-            }
+        lock.lock()
+        defer { lock.unlock() }
+        
+        if let result = result {
+            handler(result)
+        } else {
+            handlers.append(handler)
         }
     }
     
@@ -104,10 +107,11 @@ public class Future<T> {
     ///
     /// If the completion throws an error, this will be passed to the handlers
     public func complete(_ closure: @escaping () throws -> T) throws {
-        try futureManipulationQueue.sync {
-            guard result == nil else {
-                throw FutureError.alreadyCompleted
-            }
+        lock.lock()
+        defer { lock.unlock() }
+        
+        guard result == nil else {
+            throw FutureError.alreadyCompleted
         }
         
         self._complete(closure)
@@ -118,25 +122,30 @@ public class Future<T> {
             do {
                 let result = Result.success(try closure())
                 
-                futureManipulationQueue.sync {
-                    for handler in self.handlers {
-                        handler(result)
-                    }
+                self.lock.lock()
+                defer { self.lock.unlock() }
+                
+                for handler in self.handlers {
+                    handler(result)
                 }
             } catch {
-                futureManipulationQueue.sync {
-                    let error = Result.error(error)
-                    
-                    for handler in self.handlers {
-                        handler(error)
-                    }
+                self.lock.lock()
+                
+                defer { self.lock.unlock() }
+                let error = Result.error(error)
+                
+                for handler in self.handlers {
+                    handler(error)
                 }
             }
         }
     }
     
     public var isCompleted: Bool {
-        return futureManipulationQueue.sync { self.result != nil }
+        lock.lock()
+        defer { lock.unlock() }
+        
+        return self.result != nil
     }
     
     public func map<B>(_ closure: @escaping ((T) throws -> (B))) throws -> Future<B> {
@@ -154,60 +163,52 @@ public class Future<T> {
     }
     
     internal init<Base>(transform: @escaping ((Base) throws -> (Future<T>)), from: Future<Base>) throws {
-        try futureManipulationQueue.sync {
-            func processResult(_ result: Future<Base>.Result) throws {
-                switch result {
-                case .success(let data):
-                    let promise = try transform(data)
-                    if let result = promise.result {
-                        self._complete {
-                            try result.assertSuccess()
-                        }
-                    } else {
-                        promise.then { result in
-                            self._complete { try result.assertSuccess() }
-                        }
+        func processResult(_ result: Future<Base>.Result) throws {
+            switch result {
+            case .success(let data):
+                let promise = try transform(data)
+                if let result = promise.result {
+                    self._complete {
+                        try result.assertSuccess()
                     }
-                case .error(let error):
-                    self.result = .error(error)
+                } else {
+                    promise.then { result in
+                        self._complete { try result.assertSuccess() }
+                    }
                 }
+            case .error(let error):
+                self._complete { throw error }
             }
-            
-            if let result = from.result {
-                try processResult(result)
-            } else {
-                from.then { result in
-                    do {
-                        try processResult(result)
-                    } catch {
-                        self.result = .error(error)
-                    }
+        }
+        
+        if let result = from.result {
+            try processResult(result)
+        } else {
+            from.then { result in
+                do {
+                    try processResult(result)
+                } catch {
+                    self._complete { throw error }
                 }
             }
         }
     }
     
     internal init<Base>(transform: @escaping ((Base) throws -> (T)), from: Future<Base>) throws {
-        try futureManipulationQueue.sync {
-            if let result = from.result {
+        if let result = from.result {
+            switch result {
+            case .success(let data):
+                self._complete { try transform(data) }
+            case .error(let error):
+                self._complete { throw error }
+            }
+        } else {
+            from.then { result in
                 switch result {
                 case .success(let data):
-                    self.result = .success(try transform(data))
+                    self._complete { try transform(data) }
                 case .error(let error):
-                    self.result = .error(error)
-                }
-            } else {
-                from.then { result in
-                    switch result {
-                    case .success(let data):
-                        do {
-                            self.result = .success(try transform(data))
-                        } catch {
-                            self.result = .error(error)
-                        }
-                    case .error(let error):
-                        self.result = .error(error)
-                    }
+                    self._complete { throw error }
                 }
             }
         }
