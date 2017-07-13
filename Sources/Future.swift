@@ -1,28 +1,109 @@
 import Foundation
 import Dispatch
 
-public class Future<T> {
+extension Sequence where Element : FutureType {
+    public typealias Expectation = Element.Expectation
+    public typealias Result = FutureResult<Expectation>
+    
+    public func await(for interval: DispatchTimeInterval) throws -> [Expectation] {
+        let time = DispatchTime.now() + interval
+        
+        return try self.await(until: time)
+    }
+    
+    public func await(until time: DispatchTime) throws -> [Expectation] {
+        return try self.map {
+            try $0.await(until: time)
+        }
+    }
+    
+    public func then(_ handler: @escaping ((([Result]) -> ()))) {
+        var all = Array(self)
+        var heap = [Result]()
+        
+        guard all.count > 0 else {
+            handler([])
+            return
+        }
+        
+        var promise = all.removeFirst()
+        
+        while all.count > 0 {
+            let newPromise = all.removeFirst()
+            
+            promise.then { result in
+                heap.append(result)
+            }
+            
+            promise = newPromise
+        }
+        
+        promise.then { result in
+            heap.append(result)
+            handler(heap)
+        }
+    }
+}
+
+extension Sequence where Element : FutureResultType {
+    public func assertSuccess() throws -> [Expectation] {
+        return try self.map {
+            try $0.assertSuccess()
+        }
+    }
+}
+
+extension Sequence where Element : FutureResultType, Element.Expectation == Void {
+    public func assertSuccess() throws {
+        for result in self {
+            try result.assertSuccess()
+        }
+    }
+}
+
+public protocol FutureType {
+    associatedtype Expectation
+    
+    func then(_ handler: @escaping ResultHandler)
+    func await(until time: DispatchTime) throws -> Expectation
+}
+
+public protocol FutureResultType {
+    associatedtype Expectation
+    
+    func assertSuccess() throws -> Expectation
+}
+
+extension FutureType {
+    public typealias ResultHandler = ((FutureResult<Expectation>) -> ())
+}
+
+/// A result, be it an error or successful result
+public indirect enum FutureResult<T> : FutureResultType {
+    public typealias Expectation = T
+    
+    case success(T)
+    case error(Swift.Error)
+    
+    public func assertSuccess() throws -> T {
+        switch self {
+        case .success(let data):
+            return data
+        case .error(let error):
+            throw error
+        }
+    }
+}
+
+public final class Future<T> : FutureType {
+    public typealias Expectation = T
+    
     var result: Result?
     var handlers = [ResultHandler]()
     let start = DispatchTime.now()
     let lock = NSRecursiveLock()
     
-    public typealias ResultHandler = ((Result) -> ())
-    
-    /// A result, be it an error or successful result
-    public indirect enum Result {
-        case success(T)
-        case error(Swift.Error)
-        
-        public func assertSuccess() throws -> T {
-            switch self {
-            case .success(let data):
-                return data
-            case .error(let error):
-                throw error
-            }
-        }
-    }
+    public typealias Result = FutureResult<Expectation>
     
     /// Awaits for a `Result`
     ///
@@ -68,7 +149,7 @@ public class Future<T> {
         }
     }
     
-    public func await(until interval: DispatchTimeInterval) throws -> T {
+    public func await(until time: DispatchTime) throws -> T {
         let semaphore = DispatchSemaphore(value: 0)
         var awaitedResult: Result?
         
@@ -77,8 +158,8 @@ public class Future<T> {
             semaphore.signal()
         }
         
-        guard semaphore.wait(timeout: DispatchTime.now() + interval) == .success else {
-            throw FutureError.timeout(after: interval)
+        guard semaphore.wait(timeout: time) == .success else {
+            throw FutureError.timeout(at: time)
         }
         
         if let awaitedResult = awaitedResult {
@@ -86,6 +167,10 @@ public class Future<T> {
         }
         
         throw FutureError.inconsistency
+    }
+    
+    public func await(for interval: DispatchTimeInterval) throws -> T {
+        return try self.await(until: DispatchTime.now() + interval)
     }
     
     /// Gets called only when an error occurred due to throwing
@@ -217,6 +302,6 @@ public class Future<T> {
 
 public enum FutureError : Error {
     case alreadyCompleted
-    case timeout(after: DispatchTimeInterval)
+    case timeout(at: DispatchTime)
     case inconsistency
 }
