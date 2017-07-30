@@ -1,6 +1,8 @@
 import Foundation
 import Dispatch
 
+let backgroundExecutionQueue = DispatchQueue(label: "org.openkitten.schrodinger.backgroundexecution", attributes: .concurrent)
+
 extension Sequence where Element : FutureType {
     public typealias Expectation = Element.Expectation
     public typealias Result = FutureResult<Expectation>
@@ -233,21 +235,13 @@ public final class Future<T> : FutureType {
         return self.result != nil
     }
     
-    public func map<B>(_ closure: @escaping ((T) throws -> (B))) throws -> Future<B> {
-        return try Future<B>(transform: closure, from: self)
-    }
-    
-    public func replace<B>(_ closure: @escaping ((T) throws -> (Future<B>))) throws -> Future<B> {
-        return try Future<B>(transform: closure, from: self)
-    }
-    
     public init() {}
     
     public init(_ closure: @escaping () throws -> T) {
         self._complete(closure)
     }
     
-    internal init<Base>(transform: @escaping ((Base) throws -> (Future<T>)), from: Future<Base>) throws {
+    internal init<Base, FT : FutureType>(transform: @escaping ((Base) throws -> (Future<T>)), from: FT) throws where FT.Expectation == Base {
         func processResult(_ result: Future<Base>.Result) throws {
             switch result {
             case .success(let data):
@@ -266,35 +260,22 @@ public final class Future<T> : FutureType {
             }
         }
         
-        if let result = from.result {
-            try processResult(result)
-        } else {
-            from.then { result in
-                do {
-                    try processResult(result)
-                } catch {
-                    self._complete { throw error }
-                }
+        from.then { result in
+            do {
+                try processResult(result)
+            } catch {
+                self._complete { throw error }
             }
         }
     }
     
-    internal init<Base>(transform: @escaping ((Base) throws -> (T)), from: Future<Base>) throws {
-        if let result = from.result {
+    internal init<Base, FT : FutureType>(transform: @escaping ((Base) throws -> (T)), from: FT) where FT.Expectation == Base {
+        from.then { result in
             switch result {
             case .success(let data):
                 self._complete { try transform(data) }
             case .error(let error):
                 self._complete { throw error }
-            }
-        } else {
-            from.then { result in
-                switch result {
-                case .success(let data):
-                    self._complete { try transform(data) }
-                case .error(let error):
-                    self._complete { throw error }
-                }
             }
         }
     }
@@ -305,3 +286,14 @@ public enum FutureError : Error {
     case timeout(at: DispatchTime)
     case inconsistency
 }
+
+extension FutureType {
+    public func map<B>(_ closure: @escaping ((Expectation) throws -> (B))) -> Future<B> {
+        return Future<B>(transform: closure, from: self)
+    }
+    
+    public func replace<B>(_ closure: @escaping ((Expectation) throws -> (Future<B>))) throws -> Future<B> {
+        return try Future<B>(transform: closure, from: self)
+    }
+}
+
