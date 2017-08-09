@@ -13,9 +13,21 @@ extension Sequence where Element : FutureType {
         return try self.await(until: time)
     }
     
+    public func await(for interval: SchrodingerTimeInterval) throws -> [Expectation] {
+        let time = DispatchTime.now() + interval
+        
+        return try self.await(until: time)
+    }
+    
     public func await(until time: DispatchTime) throws -> [Expectation] {
         return try self.map {
             try $0.await(until: time)
+        }
+    }
+    
+    public func await(until date: Date) throws -> [Expectation] {
+        return try self.map {
+            try $0.await(until: DispatchTime.now() + date.timeIntervalSinceNow)
         }
     }
     
