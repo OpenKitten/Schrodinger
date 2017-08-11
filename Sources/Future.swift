@@ -227,6 +227,8 @@ public final class Future<T> : FutureType {
                 for handler in self.handlers {
                     handler(result)
                 }
+                
+                self.result = result
             } catch {
                 self.lock.lock()
                 
@@ -236,6 +238,8 @@ public final class Future<T> : FutureType {
                 for handler in self.handlers {
                     handler(error)
                 }
+                
+                self.result = error
             }
         }
     }
