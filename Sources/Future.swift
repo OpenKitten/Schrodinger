@@ -257,6 +257,20 @@ public final class Future<T> : FutureType {
         self._complete(closure)
     }
     
+    /// Creates a new future, combining `futures` into a single future that completes once all contained futures complete
+    public convenience init<FT, S>(_ futures: S) where S : Sequence, S.Element == FT, FT : FutureType, FT.Expectation == Void, T == Void {
+        self.init {
+            _ = try futures.await(until: DispatchTime.distantFuture)
+        }
+    }
+    
+    /// Creates a new future, combining `futures` into a single future that completes once all contained futures complete
+    public convenience init<FT, S>(_ futures: S) where S : Sequence, S.Element == FT, FT : FutureType, T == [FT.Expectation] {
+        self.init {
+            return try futures.await(until: DispatchTime.distantFuture)
+        }
+    }
+    
     internal init<Base, FT : FutureType>(transform: @escaping ((Base) throws -> (Future<T>)), from: FT) throws where FT.Expectation == Base {
         func processResult(_ result: Future<Base>.Result) throws {
             switch result {
