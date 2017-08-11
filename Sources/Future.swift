@@ -45,14 +45,14 @@ extension Sequence where Element : FutureType {
         while all.count > 0 {
             let newPromise = all.removeFirst()
             
-            promise.then { result in
+            promise.onComplete { result in
                 heap.append(result)
             }
             
             promise = newPromise
         }
         
-        promise.then { result in
+        promise.onComplete { result in
             heap.append(result)
             handler(heap)
         }
@@ -78,7 +78,7 @@ extension Sequence where Element : FutureResultType, Element.Expectation == Void
 public protocol FutureType {
     associatedtype Expectation
     
-    func then(_ handler: @escaping ResultHandler)
+    func onComplete(_ handler: @escaping ResultHandler)
     func await(until time: DispatchTime) throws -> Expectation
 }
 
@@ -137,7 +137,7 @@ public final class Future<T> : FutureType {
     ///     }
     /// }
     /// ```
-    public func then(_ handler: @escaping ResultHandler) {
+    public func onComplete(_ handler: @escaping ResultHandler) {
         lock.lock()
         defer { lock.unlock() }
         
@@ -155,8 +155,8 @@ public final class Future<T> : FutureType {
     ///     process(data)
     /// }
     /// ```
-    public func onSuccess(_ handler: @escaping ((T) -> ())) {
-        self.then { result in
+    public func then(_ handler: @escaping ((T) -> ())) {
+        self.onComplete { result in
             if case .success(let value) = result {
                 handler(value)
             }
@@ -167,7 +167,7 @@ public final class Future<T> : FutureType {
         let semaphore = DispatchSemaphore(value: 0)
         var awaitedResult: Result?
         
-        self.then { result in
+        self.onComplete { result in
             awaitedResult = result
             semaphore.signal()
         }
@@ -194,8 +194,8 @@ public final class Future<T> : FutureType {
     ///     print(error)
     /// }
     /// ```
-    public func onError(_ handler: @escaping ((Swift.Error) -> ())) {
-        self.then { result in
+    public func `catch`(_ handler: @escaping ((Swift.Error) -> ())) {
+        self.onComplete { result in
             if case .error(let error) = result {
                 handler(error)
             }
@@ -263,7 +263,7 @@ public final class Future<T> : FutureType {
                         try result.assertSuccess()
                     }
                 } else {
-                    promise.then { result in
+                    promise.onComplete { result in
                         self._complete { try result.assertSuccess() }
                     }
                 }
@@ -272,7 +272,7 @@ public final class Future<T> : FutureType {
             }
         }
         
-        from.then { result in
+        from.onComplete { result in
             do {
                 try processResult(result)
             } catch {
@@ -282,7 +282,7 @@ public final class Future<T> : FutureType {
     }
     
     internal init<Base, FT : FutureType>(transform: @escaping ((Base) throws -> (T)), from: FT) where FT.Expectation == Base {
-        from.then { result in
+        from.onComplete { result in
             switch result {
             case .success(let data):
                 self._complete { try transform(data) }
