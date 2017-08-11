@@ -14,5 +14,16 @@ class SchrodingerTests: XCTestCase {
         XCTAssertEqual(try future.await(for: .seconds(1)), value)
     }
     
+    func testVoidFutureThen() throws {
+        let future = Future {}
+        
+        let thenExpectation = expectation(description: "The then closure is called")
+        future.then {
+            thenExpectation.fulfill()
+        }
+        
+        waitForExpectations(timeout: 1)
+    }
+    
 }
 
